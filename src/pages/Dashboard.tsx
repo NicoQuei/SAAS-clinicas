@@ -1,53 +1,94 @@
 import { motion } from 'framer-motion';
-import { Users, TrendingUp, Calendar as CalendarIcon, DollarSign, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { Users, Calendar as CalendarIcon, DollarSign, Activity } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-
-const data = [
-  { name: 'Jan', total: 1200 },
-  { name: 'Fev', total: 2100 },
-  { name: 'Mar', total: 1800 },
-  { name: 'Abr', total: 2400 },
-  { name: 'Mai', total: 2800 },
-  { name: 'Jun', total: 3200 },
-];
-
-const STATS = [
-  {
-    title: 'Faturamento Total',
-    value: 'R$ 45.231,89',
-    icon: DollarSign,
-    trend: '+20.1%',
-    isPositive: true,
-  },
-  {
-    title: 'Novos Pacientes',
-    value: '+2,350',
-    icon: Users,
-    trend: '+180.1%',
-    isPositive: true,
-  },
-  {
-    title: 'Consultas Hoje',
-    value: '24',
-    icon: CalendarIcon,
-    trend: '-4%',
-    isPositive: false,
-  },
-  {
-    title: 'Taxa de Retenção',
-    value: '98.3%',
-    icon: TrendingUp,
-    trend: '+2.4%',
-    isPositive: true,
-  },
-];
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
+import { Link } from 'react-router-dom';
 
 export function Dashboard() {
+  const { profile } = useAuth();
+
+  // Fetch counts and stats
+  const { data: stats, isLoading: isLoadingStats } = useQuery({
+    queryKey: ['dashboard-stats', profile?.clinic_id],
+    queryFn: async () => {
+      if (!profile?.clinic_id) return null;
+
+      const [patientsCount, appointmentsToday, totalRevenue] = await Promise.all([
+        supabase.from('patients').select('*', { count: 'exact', head: true }).eq('clinic_id', profile.clinic_id),
+        supabase.from('appointments')
+          .select('*', { count: 'exact', head: true })
+          .eq('clinic_id', profile.clinic_id)
+          .gte('start_time', new Date().toISOString().split('T')[0]),
+        supabase.from('transactions')
+          .select('amount')
+          .eq('clinic_id', profile.clinic_id)
+          .eq('type', 'INCOME')
+      ]);
+
+      const revenue = totalRevenue.data?.reduce((acc, curr) => acc + Number(curr.amount), 0) || 0;
+
+      return {
+        patients: patientsCount.count || 0,
+        appointmentsToday: appointmentsToday.count || 0,
+        revenue: revenue,
+      };
+    },
+    enabled: !!profile?.clinic_id,
+  });
+
+  // Fetch upcoming appointments
+  const { data: upcomingAppointments } = useQuery({
+    queryKey: ['upcoming-appointments', profile?.clinic_id],
+    queryFn: async () => {
+      if (!profile?.clinic_id) return [];
+      const { data, error } = await supabase
+        .from('appointments')
+        .select('*, patients(name)')
+        .eq('clinic_id', profile.clinic_id)
+        .gte('start_time', new Date().toISOString())
+        .order('start_time')
+        .limit(4);
+      
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!profile?.clinic_id,
+  });
+
+  const STATS = [
+    {
+      title: 'Faturamento Total',
+      value: `R$ ${stats?.revenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0,00'}`,
+      icon: DollarSign,
+      color: 'bg-emerald-500/10 text-emerald-600',
+    },
+    {
+      title: 'Total de Pacientes',
+      value: stats?.patients.toString() || '0',
+      icon: Users,
+      color: 'bg-blue-500/10 text-blue-600',
+    },
+    {
+      title: 'Consultas Hoje',
+      value: stats?.appointmentsToday.toString() || '0',
+      icon: CalendarIcon,
+      color: 'bg-indigo-500/10 text-indigo-600',
+    },
+    {
+      title: 'Atividade Recente',
+      value: 'Ativo',
+      icon: Activity,
+      color: 'bg-amber-500/10 text-amber-600',
+    },
+  ];
+
   return (
     <div className="space-y-8">
       <div>
         <h1 className="text-2xl font-semibold text-slate-900 dark:text-white">Dashboard</h1>
-        <p className="text-slate-500 dark:text-slate-400 mt-1">Bem-vindo de volta, aqui está o resumo da sua clínica.</p>
+        <p className="text-slate-500 dark:text-slate-400 mt-1">Bem-vindo de volta, {profile?.name || 'usuário'}. Aqui está o resumo da clínica.</p>
       </div>
 
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
@@ -60,17 +101,15 @@ export function Dashboard() {
             className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm"
           >
             <div className="flex items-center justify-between">
-              <div className="p-2 bg-indigo-50 dark:bg-indigo-500/10 rounded-lg">
-                <stat.icon className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-              </div>
-              <div className={`flex items-center text-sm font-medium ${stat.isPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
-                {stat.isPositive ? <ArrowUpRight className="w-4 h-4 mr-1" /> : <ArrowDownRight className="w-4 h-4 mr-1" />}
-                {stat.trend}
+              <div className={`p-2 rounded-lg ${stat.color}`}>
+                <stat.icon className="w-5 h-5" />
               </div>
             </div>
             <div className="mt-4">
               <h3 className="text-slate-500 dark:text-slate-400 text-sm font-medium">{stat.title}</h3>
-              <p className="text-2xl font-semibold text-slate-900 dark:text-white mt-1">{stat.value}</p>
+              <p className="text-2xl font-semibold text-slate-900 dark:text-white mt-1">
+                {isLoadingStats ? '...' : stat.value}
+              </p>
             </div>
           </motion.div>
         ))}
@@ -85,28 +124,12 @@ export function Dashboard() {
         >
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Visão Geral de Receita</h2>
-              <p className="text-sm text-slate-500 dark:text-slate-400">Acompanhamento dos últimos 6 meses</p>
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Visão Geral</h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400">Desempenho da clínica</p>
             </div>
           </div>
-          <div className="h-[300px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} dx={-10} />
-                <Tooltip 
-                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                />
-                <Area type="monotone" dataKey="total" stroke="#6366f1" strokeWidth={3} fillOpacity={1} fill="url(#colorTotal)" />
-              </AreaChart>
-            </ResponsiveContainer>
+          <div className="h-[300px] w-full flex items-center justify-center text-slate-400 border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-xl">
+             Gráfico de evolução (em breve com dados históricos)
           </div>
         </motion.div>
 
@@ -118,25 +141,32 @@ export function Dashboard() {
         >
           <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-6">Próximos Atendimentos</h2>
           <div className="space-y-6">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center flex-shrink-0">
-                  <span className="text-sm font-medium text-slate-600 dark:text-slate-300">P{i}</span>
+            {upcomingAppointments?.map((apt: any) => (
+              <div key={apt.id} className="flex items-center gap-4">
+                <div className="w-10 h-10 rounded-full bg-indigo-100 dark:bg-indigo-500/20 flex items-center justify-center flex-shrink-0 text-indigo-600 font-bold text-xs">
+                  {apt.patients?.name.split(' ').map((n: any) => n[0]).join('')}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-slate-900 dark:text-white truncate">Paciente Exemplo {i}</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">Consulta de Retorno</p>
+                  <p className="text-sm font-medium text-slate-900 dark:text-white truncate">{apt.patients?.name}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">{apt.type}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm font-medium text-slate-900 dark:text-white">14:00</p>
-                  <p className="text-xs text-indigo-600 dark:text-indigo-400 font-medium">Em 2h</p>
+                  <p className="text-sm font-medium text-slate-900 dark:text-white">
+                    {new Date(apt.start_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                  </p>
                 </div>
               </div>
             ))}
+            {upcomingAppointments?.length === 0 && (
+              <p className="text-sm text-slate-500 text-center py-4">Nenhuma consulta agendada.</p>
+            )}
           </div>
-          <button className="w-full mt-6 py-2.5 text-sm font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-colors">
+          <Link 
+            to="/agenda"
+            className="block w-full mt-6 py-2.5 text-center text-sm font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-colors"
+          >
             Ver Agenda Completa
-          </button>
+          </Link>
         </motion.div>
       </div>
     </div>
