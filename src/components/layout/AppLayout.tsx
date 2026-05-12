@@ -13,6 +13,8 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
+import { useAuth } from '../../contexts/AuthContext';
+
 const NAVIGATION = [
   { name: 'Dashboard', to: '/dashboard', icon: LayoutDashboard },
   { name: 'Agenda', to: '/agenda', icon: CalendarDays },
@@ -24,9 +26,10 @@ const NAVIGATION = [
 export function AppLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const navigate = useNavigate();
+  const { user, signOut } = useAuth();
 
-  const handleLogout = () => {
-    // Supabase logout logic here
+  const handleLogout = async () => {
+    await signOut();
     navigate('/login');
   };
 
@@ -121,11 +124,15 @@ export function AppLayout() {
             </button>
             <div className="flex items-center gap-3 pl-4 border-l border-slate-200 dark:border-slate-800">
               <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center dark:bg-indigo-900/30">
-                <span className="text-sm font-medium text-indigo-600 dark:text-indigo-400">DR</span>
+                <span className="text-sm font-medium text-indigo-600 dark:text-indigo-400">
+                  {user?.email?.charAt(0).toUpperCase() || 'U'}
+                </span>
               </div>
-              <div className="hidden sm:block">
-                <p className="text-sm font-medium text-slate-900 dark:text-white">Dr. Roberto</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Administrador</p>
+              <div className="hidden sm:block text-left">
+                <p className="text-sm font-medium text-slate-900 dark:text-white line-clamp-1 max-w-[150px]">
+                  {user?.email || 'Usuário'}
+                </p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Logado</p>
               </div>
             </div>
           </div>
